@@ -7,6 +7,7 @@ const prisma = require('./db');
 const authRoutes = require('./routes/auth');
 const listingRoutes = require('./routes/listings');
 const negotiationRoutes = require('./routes/negotiations');
+const favoriteRoutes = require('./routes/favorites');
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Error('JWT_SECRET precisa ter pelo menos 32 caracteres.');
 const app = express();
@@ -19,6 +20,7 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'movexa-
 app.use('/api/auth', authRoutes);
 app.use('/api/listings', listingRoutes);
 app.use('/api/negotiations', negotiationRoutes);
+app.use('/api/favorites', favoriteRoutes);
 app.use((req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
 app.use((error, _req, res, _next) => {
   if (error.name === 'ZodError') return res.status(400).json({ error: 'Verifique os dados informados.', details: error.issues.map(({ path, message }) => ({ field: path.join('.'), message })) });
