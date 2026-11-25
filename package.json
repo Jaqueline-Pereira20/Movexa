@@ -1,0 +1,14 @@
+{
+  "name": "movexa",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["apps/api", "apps/web"],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev -w @movexa/api\" \"npm run dev -w @movexa/web\"",
+    "build": "npm run build -w @movexa/web",
+    "start": "npm run start -w @movexa/api",
+    "db:generate": "npm run db:generate -w @movexa/api",
+    "db:push": "npm run db:push -w @movexa/api"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}
