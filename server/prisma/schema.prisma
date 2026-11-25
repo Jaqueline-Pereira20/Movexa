@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+enum DealType {
+  SALE
+  TRADE
+  DONATION
+  RENTAL
+}
+
+enum ListingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CLOSED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  course       String?
+  university   String?
+  role         Role     @default(STUDENT)
+  createdAt    DateTime @default(now())
+
+  listings     Listing[]
+  negotiations Negotiation[]
+  messages     Message[]
+}
+
+model Listing {
+  id            String        @id @default(cuid())
+  title         String
+  description   String
+  category      String
+  dealType      DealType
+  price         Decimal?      @db.Decimal(10, 2)
+  location      String
+  imageUrl      String?
+  status        ListingStatus @default(PENDING)
+  moderationNote String?
+  ownerId       String
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  negotiations  Negotiation[]
+
+  @@index([status, createdAt])
+  @@index([category])
+  @@index([ownerId])
+}
+
+model Negotiation {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId   String
+  buyer     User     @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages  Message[]
+
+  @@unique([listingId, buyerId])
+  @@index([buyerId])
+}
+
+model Message {
+  id            String      @id @default(cuid())
+  negotiationId String
+  negotiation   Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  senderId      String
+  sender        User        @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  content       String
+  createdAt     DateTime    @default(now())
+
+  @@index([negotiationId, createdAt])
+}
