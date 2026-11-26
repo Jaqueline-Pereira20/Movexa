@@ -39,7 +39,7 @@ Ajuste `DATABASE_URL` no `.env` para apontar ao PostgreSQL local. O Vite executa
 
 ## API inicial
 
-- `POST /api/auth/register` — cadastro de estudante.
+- `POST /api/auth/register` — cadastro de estudante, apenas com e-mail institucional (IFCE, Unifor, Unichristus, UFC ou UECE; domínios em `apps/api/src/institutions.js`). A instituição é definida pelo domínio do e-mail.
 - `POST /api/auth/login` — login.
 - `GET /api/auth/me` — sessão atual (Bearer token).
 - `GET /api/listings` — anúncios ativos com pesquisa e filtros `q`, `category`, `dealType`, `location` e `page`.

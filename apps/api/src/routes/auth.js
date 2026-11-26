@@ -4,13 +4,13 @@ const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth } = require('../auth');
+const { INSTITUTIONS, findInstitution } = require('../institutions');
 
 const router = express.Router();
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(254),
   password: z.string().min(10).max(72),
-  institution: z.string().trim().min(2).max(120),
   course: z.string().trim().min(2).max(120),
   location: z.string().trim().min(2).max(120)
 });
@@ -21,12 +21,17 @@ router.post('/register', async (req, res, next) => {
   try {
     const data = registerSchema.parse(req.body);
     const email = data.email.toLowerCase();
+    const institution = findInstitution(email);
+    if (!institution) {
+      return res.status(400).json({ error: `Use seu e-mail institucional (${Object.keys(INSTITUTIONS).join(', ')}).` });
+    }
     const { password, ...userData } = data;
 const passwordHash = await bcrypt.hash(password, 12);
 
 const user = await prisma.user.create({
   data: {
     ...userData,
+    institution,
     email,
     passwordHash
   }
