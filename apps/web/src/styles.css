@@ -345,3 +345,174 @@
     width: 100%;
   }
 }
+
+/* PAINEL ADMINISTRATIVO */
+.admin-page {
+  min-height: 75vh;
+  padding: 56px 24px 80px;
+  background: #faf9f6;
+}
+
+.admin-container {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.admin-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 48px;
+}
+
+.admin-heading h1 {
+  margin: 12px 0;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+}
+
+.admin-heading p,
+.admin-section-heading p {
+  color: #777;
+  line-height: 1.6;
+}
+
+.admin-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.admin-section-heading h2 {
+  margin-bottom: 6px;
+}
+
+.admin-listings {
+  display: grid;
+  gap: 22px;
+}
+
+.admin-listing-card {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 24px;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid #eee9e1;
+  border-radius: 18px;
+}
+
+.admin-listing-image,
+.admin-listing-placeholder {
+  width: 100%;
+  min-height: 220px;
+  height: 100%;
+  max-height: 280px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.admin-listing-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #f4f0e9;
+  color: #888;
+}
+
+.admin-listing-info h3 {
+  margin: 10px 0;
+  font-size: 1.35rem;
+}
+
+.admin-listing-info > p {
+  color: #666;
+  line-height: 1.6;
+}
+
+.admin-listing-details {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.admin-listing-details strong {
+  color: #292929;
+}
+
+.admin-listing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.admin-listing-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+@media (max-width: 700px) {
+  .admin-page {
+    padding: 36px 16px 60px;
+  }
+
+  .admin-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-bottom: 32px;
+  }
+
+  .admin-listing-card {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .admin-listing-image,
+  .admin-listing-placeholder {
+    min-height: 180px;
+    max-height: 220px;
+  }
+}
+
+/* Prévia da imagem no cadastro de anúncios */
+.image-preview {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 12px;
+  border: 1px dashed #d6d6d6;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.image-preview img {
+  display: block;
+  width: 150px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+/* Prévia da imagem selecionada no anúncio */
+.image-preview {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 12px;
+  margin-top: 8px;
+}
+
+.image-preview img {
+  width: 140px;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 8px;
+}

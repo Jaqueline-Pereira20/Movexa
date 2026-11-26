@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, Calculator, ChevronDown, Heart, Laptop, LibraryBig, Menu, Search, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '/api';
+const imageSrc = (url) => url?.startsWith('/uploads/')
+  ? `${API.replace(/\/api\/?$/, '')}${url}`
+  : url;
 const categories = [
   { name: 'Livros', icon: BookOpen, color: 'lavender' },
   { name: 'Tecnologia', icon: Laptop, color: 'peach' },
@@ -26,6 +29,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState('');
+  const [imagePreview, setImagePreview] = useState('');
   const [selectedListing, setSelectedListing] = useState(null);
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem('movexa-user')); } catch { return null; } });
   const [token, setToken] = useState(() => localStorage.getItem('movexa-token') || '');
@@ -36,6 +40,9 @@ export default function App() {
   const [selectedNegotiation, setSelectedNegotiation] = useState(null);
   const [messageDraft, setMessageDraft] = useState('');
   const [loadingNegotiations, setLoadingNegotiations] = useState(false);
+  const [pendingListings, setPendingListings] = useState([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [moderatingListing, setModeratingListing] = useState('');
 
   const query = useMemo(() => new URLSearchParams(Object.fromEntries(Object.entries({ q: search, category, dealType }).filter(([, value]) => value))), [search, category, dealType]);
   useEffect(() => {
@@ -94,6 +101,72 @@ export default function App() {
     };
   }, [user, token]);
 
+  useEffect(() => {
+    if (!user || !token || user.role !== 'ADMIN') {
+      setPendingListings([]);
+      return;
+    }
+
+    let active = true;
+    setLoadingPending(true);
+
+    fetch(`${API}/listings/admin/pending`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+      .then(async (response) => {
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Não foi possível carregar os anúncios pendentes.');
+        }
+
+        return data;
+      })
+      .then((data) => {
+        if (active) setPendingListings(data.items || []);
+      })
+      .catch((error) => {
+        if (active) setNotice(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadingPending(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, token]);
+  async function moderateListing(id, status) {
+    setModeratingListing(id);
+
+    try {
+      const response = await fetch(`${API}/listings/admin/${id}/moderate`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível atualizar o anúncio.');
+      }
+
+      setPendingListings((current) => current.filter((item) => item.id !== id));
+      setNotice(status === 'ACTIVE'
+        ? 'Anúncio aprovado e publicado!'
+        : 'Anúncio rejeitado.');
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setModeratingListing('');
+    }
+  }
   async function submitAuth(event) {
     event.preventDefault();
     const form = Object.fromEntries(new FormData(event.currentTarget));
@@ -108,14 +181,20 @@ export default function App() {
 
   async function createListing(event) {
     event.preventDefault();
-    const fields = Object.fromEntries(new FormData(event.currentTarget));
-    const payload = { ...fields, price: fields.price ? Number(fields.price) : null };
+    const formData = new FormData(event.currentTarget);
     try {
-      const response = await fetch(`${API}/listings`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+      const response = await fetch(`${API}/listings`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Não foi possível publicar.');
-      setNotice('Anúncio enviado! Ele ficará visível após a aprovação da equipe.'); setModal('');
-    } catch (error) { setNotice(error.message); }
+      setNotice('Anúncio enviado! Ele ficará visível após a aprovação da equipe.');
+      setModal('');
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
   function openListing(item) {
@@ -213,7 +292,7 @@ export default function App() {
     <header className="topbar"><div className="nav-wrap">
       <a className="brand" href="#inicio" aria-label="Movexa início"><span className="brand-mark">m</span><span>movexa<span className="brand-dot">.</span></span></a>
       <button className="mobile-toggle" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menu">{mobileMenu ? <X /> : <Menu />}</button>
-      <nav className={mobileMenu ? 'nav-links open' : 'nav-links'}><a href="#explorar" onClick={() => setMobileMenu(false)}>Explorar</a><a href="#categorias" onClick={() => setMobileMenu(false)}>Categorias</a><a href="#como-funciona" onClick={() => { setActiveView('home'); setMobileMenu(false); }}>Como funciona</a>{user && <button className="nav-view-button" onClick={() => { setActiveView('negotiations'); setMobileMenu(false); }}>Minhas negociações</button>}</nav>
+      <nav className={mobileMenu ? 'nav-links open' : 'nav-links'}><a href="#explorar" onClick={() => setMobileMenu(false)}>Explorar</a><a href="#categorias" onClick={() => setMobileMenu(false)}>Categorias</a><a href="#como-funciona" onClick={() => { setActiveView('home'); setMobileMenu(false); }}>Como funciona</a>{user && <button className="nav-view-button" onClick={() => { setActiveView('negotiations'); setMobileMenu(false); }}>Minhas negociações</button>}{user?.role === 'ADMIN' && <button className="nav-view-button" onClick={() => { setActiveView('admin'); setMobileMenu(false); }}>Painel administrativo</button>}</nav>
       <div className="nav-actions">{user ? <><span className="welcome">Oi, {user.name.split(' ')[0]}</span><button className="btn btn-outline" onClick={logout}>Sair</button></> : <><button className="login-link" onClick={() => setModal('login')}>Entrar</button><button className="btn btn-dark" onClick={() => setModal('register')}>Criar conta <ArrowRight size={16} /></button></>}<button className="btn btn-orange nav-publish" onClick={() => user ? setModal('listing') : setModal('login')}>Anunciar grátis <span>＋</span></button></div>
     </div></header>
 
@@ -223,7 +302,7 @@ export default function App() {
       <div className="category-row" id="categorias"><button className={!category ? 'category-chip selected' : 'category-chip'} onClick={() => setCategory('')}>Tudo</button>{categories.map(({ name, icon: Icon, color }) => <button key={name} className={category === name ? 'category-chip selected' : 'category-chip'} onClick={() => setCategory(category === name ? '' : name)}><span className={`category-icon ${color}`}><Icon size={16} /></span>{name}</button>)}<label className="deal-select"><select id="deal-filter" value={dealType} onChange={(e) => setDealType(e.target.value)}><option value="">Modalidade</option><option value="SALE">Venda</option><option value="TRADE">Troca</option><option value="DONATION">Doação</option><option value="RENTAL">Aluguel</option></select><ChevronDown size={15} /></label></div>
       <div className="catalog-heading"><div><span className="eyebrow">SELECIONADOS PARA VOCÊ</span><h2>Encontre seu <em>próximo achado.</em></h2></div><a href="#explorar" className="view-all">Ver todos <ArrowRight size={16} /></a></div>
       {loading && <p className="status-message">Carregando materiais...</p>}
-      <div className="catalog-grid" id="catalog-grid">{filtered.map((item) => <article className="product-card" key={item.id}><div className="product-image"><img src={item.imageUrl || 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80'} alt={item.title} /><span className="deal-badge">{dealLabels[item.dealType] || item.dealType}</span><button className={favorites.includes(item.id) ? 'heart-button active' : 'heart-button'} onClick={() => setFavorites(favorites.includes(item.id) ? favorites.filter((id) => id !== item.id) : [...favorites, item.id])} aria-label="Favoritar anúncio"><Heart size={18} fill={favorites.includes(item.id) ? 'currentColor' : 'none'} /></button></div><div className="product-info"><span className="product-category">{item.category}</span><h3>{item.title}</h3><div className="product-meta"><span>{conditionLabels[item.condition] || 'Bom estado'}</span><span>·</span><span>{item.location}</span></div><div className="product-bottom"><div className="product-price">{money(item.price) || <span className="no-price">A combinar</span>}{item.dealType === 'RENTAL' && item.price != null && <small>/ período</small>}</div><button className="card-arrow" onClick={() => openListing(item)} aria-label="Ver anúncio"><ArrowRight size={18} /></button></div></div></article>)}{!loading && !filtered.length && <div className="empty-state"><BookOpen size={32} /><h3>Nenhum material encontrado</h3><p>Tente mudar a busca ou os filtros.</p></div>}</div>
+      <div className="catalog-grid" id="catalog-grid">{filtered.map((item) => <article className="product-card" key={item.id}><div className="product-image"><img src={imageSrc(item.imageUrl) || 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80'} alt={item.title} /><span className="deal-badge">{dealLabels[item.dealType] || item.dealType}</span><button className={favorites.includes(item.id) ? 'heart-button active' : 'heart-button'} onClick={() => setFavorites(favorites.includes(item.id) ? favorites.filter((id) => id !== item.id) : [...favorites, item.id])} aria-label="Favoritar anúncio"><Heart size={18} fill={favorites.includes(item.id) ? 'currentColor' : 'none'} /></button></div><div className="product-info"><span className="product-category">{item.category}</span><h3>{item.title}</h3><div className="product-meta"><span>{conditionLabels[item.condition] || 'Bom estado'}</span><span>·</span><span>{item.location}</span></div><div className="product-bottom"><div className="product-price">{money(item.price) || <span className="no-price">A combinar</span>}{item.dealType === 'RENTAL' && item.price != null && <small>/ período</small>}</div><button className="card-arrow" onClick={() => openListing(item)} aria-label="Ver anúncio"><ArrowRight size={18} /></button></div></div></article>)}{!loading && !filtered.length && <div className="empty-state"><BookOpen size={32} /><h3>Nenhum material encontrado</h3><p>Tente mudar a busca ou os filtros.</p></div>}</div>
     </section>
 
     <section className="mission" id="como-funciona"><div className="mission-inner"><div className="mission-badge"><ShieldCheck size={18} /> UM CICLO QUE FAZ SENTIDO</div><div className="mission-content"><h2>O que já ajudou alguém<br />pode ajudar <em>você também.</em></h2><p>A Movexa aproxima estudantes e faz materiais acadêmicos circularem. Mais acesso para quem precisa, mais propósito para o que ficaria parado.</p><button className="btn btn-orange" onClick={() => user ? setModal('listing') : setModal('register')}>Faça parte da comunidade <ArrowRight size={16} /></button></div><div className="mission-stat"><span>↗</span><b>Aprender<br />compartilhando.</b><small>Uma troca de valor, em todos os sentidos.</small></div></div></section>
@@ -231,7 +310,7 @@ export default function App() {
     </main>
 
     <footer><div className="footer-main"><a className="brand footer-brand" href="#inicio"><span className="brand-mark">m</span><span>movexa<span className="brand-dot">.</span></span></a><p>Conhecimento em movimento.<br />Feito para quem está aprendendo.</p><div className="footer-links"><a href="#explorar">Explorar materiais</a><a href="#como-funciona">Como funciona</a><a href="mailto:oi@movexa.com.br">Fale com a gente</a></div></div><div className="footer-bottom"><span>© 2026 Movexa. Feito para estudantes, com propósito.</span><span>Mais acesso. Menos desperdício. <span className="orange">✳</span></span></div></footer>
-    </>) : (
+    </>) : activeView === 'negotiations' ? (
       <main className="negotiations-page">
         <section className="negotiations-container">
           <div className="negotiations-heading">
@@ -296,8 +375,79 @@ export default function App() {
           </div>
         </section>
       </main>
-    )}
+    ) : null}
 
+    {activeView === 'admin' && (
+      <main className="admin-page">
+        <section className="admin-container">
+          <div className="admin-heading">
+            <div>
+              <span className="eyebrow">GESTÃO MOVEXA</span>
+              <h1>Painel <em>administrativo</em></h1>
+              <p>Analise os anúncios enviados pelos estudantes antes de publicá-los.</p>
+            </div>
+            <button className="btn btn-outline" onClick={() => setActiveView('home')}>Voltar aos anúncios</button>
+          </div>
+
+          {user?.role !== 'ADMIN' ? (
+            <div className="empty-state">
+              <ShieldCheck size={32} />
+              <h3>Acesso não autorizado</h3>
+              <p>Esta área é exclusiva da equipe administrativa.</p>
+            </div>
+          ) : (
+            <>
+              <div className="admin-section-heading">
+                <div>
+                  <h2>Anúncios aguardando aprovação</h2>
+                  <p>{pendingListings.length} anúncio(s) pendente(s)</p>
+                </div>
+              </div>
+
+              {loadingPending ? (
+                <div className="empty-state"><p>Carregando anúncios pendentes...</p></div>
+              ) : pendingListings.length === 0 ? (
+                <div className="empty-state">
+                  <ShieldCheck size={32} />
+                  <h3>Nenhum anúncio aguardando aprovação</h3>
+                  <p>Quando um estudante enviar um anúncio, ele aparecerá aqui.</p>
+                </div>
+              ) : (
+                <div className="admin-listings">
+                  {pendingListings.map((item) => (
+                    <article className="admin-listing-card" key={item.id}>
+                      {item.imageUrl ? (
+                        <img className="admin-listing-image" src={imageSrc(item.imageUrl)} alt={item.title} />
+                      ) : (
+                        <div className="admin-listing-placeholder"><BookOpen size={32} /><span>Sem foto</span></div>
+                      )}
+                      <div className="admin-listing-info">
+                        <span className="product-category">{item.category} · {dealLabels[item.dealType] || item.dealType}</span>
+                        <h3>{item.title}</h3>
+                        <p>{item.description}</p>
+                        <div className="admin-listing-details">
+                          <span><strong>Anunciante:</strong> {item.owner?.name || 'Não informado'}</span>
+                          <span><strong>Curso:</strong> {item.owner?.course || 'Não informado'}</span>
+                          <span><strong>Instituição:</strong> {item.owner?.institution || 'Não informada'}</span>
+                          <span><strong>Local:</strong> {item.location}</span>
+                          <span><strong>Valor:</strong> {money(item.price) || 'A combinar'}</span>
+                        </div>
+                        <div className="admin-listing-actions">
+                          <button className="btn btn-orange" disabled={moderatingListing === item.id} onClick={() => moderateListing(item.id, 'ACTIVE')}>
+                            {moderatingListing === item.id ? 'Aguarde...' : 'Aprovar anúncio'}
+                          </button>
+                          <button className="btn btn-outline" disabled={moderatingListing === item.id} onClick={() => moderateListing(item.id, 'REJECTED')}>Rejeitar</button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </main>
+    )}
     {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Fechar aviso"><X size={15} /></button></div>}
     {modal === 'details' && selectedListing && (
       <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && setModal('')}>
@@ -311,7 +461,7 @@ export default function App() {
           <div className="details-content">
             <img
               className="details-image"
-              src={selectedListing.imageUrl || 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80'}
+              src={imageSrc(selectedListing.imageUrl) || 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80'}
               alt={selectedListing.title}
             />
 
@@ -362,10 +512,25 @@ export default function App() {
       </div>
     )}
     {modal && modal !== 'details' && <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && setModal('')}><section className="modal" role="dialog" aria-modal="true"><button className="modal-close" onClick={() => setModal('')} aria-label="Fechar"><X /></button><span className="eyebrow">{modal === 'listing' ? 'PASSE ADIANTE' : 'BEM-VINDO À MOVEXA'}</span><h2>{modal === 'listing' ? 'Publique seu anúncio.' : modal === 'login' ? 'Que bom ter você de volta.' : 'Seu lugar também é aqui.'}</h2>
-      {modal === 'listing' ? <form onSubmit={createListing} className="form-grid"><label>Título<input name="title" minLength="3" required placeholder="Ex.: Livro de Cálculo" /></label><label>Categoria<input name="category" required placeholder="Ex.: Livros" /></label><label className="full">Descrição<textarea name="description" required minLength="10" placeholder="Conte sobre o material..." /></label><label>Modalidade<select name="dealType"><option value="SALE">Venda</option><option value="TRADE">Troca</option><option value="DONATION">Doação</option><option value="RENTAL">Aluguel</option></select></label><label>Preço (R$)<input name="price" type="number" min="0" step="0.01" placeholder="Deixe em branco se não se aplica" /></label><label>Condição<select name="condition"><option value="GOOD">Bom estado</option><option value="NEW">Novo</option><option value="LIKE_NEW">Quase novo</option><option value="FAIR">Usado</option></select></label><label>Localização<input name="location" required defaultValue={user?.location || ''} placeholder="Cidade, UF" /></label><label className="full">Foto (URL)<input name="imageUrl" type="url" placeholder="https://..." /></label><button className="btn btn-orange full" type="submit">Enviar para aprovação <ArrowRight size={16} /></button></form> : <form onSubmit={submitAuth} className="form-grid">{modal === 'register' && <><label className="full">Nome completo<input name="name" minLength="2" required autoComplete="name" /></label><label>Instituição<input name="institution" required /></label><label>Curso<input name="course" required /></label><label className="full">Cidade, estado<input name="location" required placeholder="Ex.: São Paulo, SP" /></label></>}<label className="full">E-mail<input name="email" type="email" required autoComplete="email" /></label><label className="full">Senha<input name="password" type="password" minLength="10" required autoComplete={modal === 'login' ? 'current-password' : 'new-password'} />{modal === 'register' && <small>Mínimo de 10 caracteres.</small>}</label><button className="btn btn-orange full" type="submit">{modal === 'login' ? 'Entrar na minha conta' : 'Criar minha conta'} <ArrowRight size={16} /></button><p className="form-switch full">{modal === 'login' ? 'Ainda não tem conta?' : 'Já faz parte da Movexa?'} <button type="button" onClick={() => setModal(modal === 'login' ? 'register' : 'login')}>{modal === 'login' ? 'Cadastre-se' : 'Entrar'}</button></p></form>}
+      {modal === 'listing' ? <form onSubmit={createListing} className="form-grid"><label>Título<input name="title" minLength="3" required placeholder="Ex.: Livro de Cálculo" /></label><label>Categoria<input name="category" required placeholder="Ex.: Livros" /></label><label className="full">Descrição<textarea name="description" required minLength="10" placeholder="Conte sobre o material..." /></label><label>Modalidade<select name="dealType"><option value="SALE">Venda</option><option value="TRADE">Troca</option><option value="DONATION">Doação</option><option value="RENTAL">Aluguel</option></select></label><label>Preço (R$)<input name="price" type="number" min="0" step="0.01" placeholder="Deixe em branco se não se aplica" /></label><label>Condição<select name="condition"><option value="GOOD">Bom estado</option><option value="NEW">Novo</option><option value="LIKE_NEW">Quase novo</option><option value="FAIR">Usado</option></select></label><label>Localização<input name="location" required defaultValue={user?.location || ''} placeholder="Cidade, UF" /></label><label className="full">Foto do material (PNG, JPG ou WEBP)<input name="image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; setImagePreview(file ? URL.createObjectURL(file) : ""); }} /><small>Selecione uma imagem de até 5 MB.</small></label>{imagePreview && <div className="image-preview full"><img src={imagePreview} alt="Prévia da imagem do anúncio" /></div>}<button className="btn btn-orange full" type="submit">Enviar para aprovação <ArrowRight size={16} /></button></form> : <form onSubmit={submitAuth} className="form-grid">{modal === 'register' && <><label className="full">Nome completo<input name="name" minLength="2" required autoComplete="name" /></label><label>Instituição<input name="institution" required /></label><label>Curso<input name="course" required /></label><label className="full">Cidade, estado<input name="location" required placeholder="Ex.: São Paulo, SP" /></label></>}<label className="full">E-mail<input name="email" type="email" required autoComplete="email" /></label><label className="full">Senha<input name="password" type="password" minLength="10" required autoComplete={modal === 'login' ? 'current-password' : 'new-password'} />{modal === 'register' && <small>Mínimo de 10 caracteres.</small>}</label><button className="btn btn-orange full" type="submit">{modal === 'login' ? 'Entrar na minha conta' : 'Criar minha conta'} <ArrowRight size={16} /></button><p className="form-switch full">{modal === 'login' ? 'Ainda não tem conta?' : 'Já faz parte da Movexa?'} <button type="button" onClick={() => setModal(modal === 'login' ? 'register' : 'login')}>{modal === 'login' ? 'Cadastre-se' : 'Entrar'}</button></p></form>}
       <p className="privacy-note">Ao continuar, você concorda com nossos termos de uso e política de privacidade.</p></section></div>}
   </>;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -1,7 +1,8 @@
-const express = require('express');
+﻿const express = require('express');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth, requireAdmin } = require('../auth');
+const { upload } = require('../upload');
 
 const router = express.Router();
 const dealTypes = ['SALE', 'TRADE', 'DONATION', 'RENTAL'];
@@ -9,7 +10,7 @@ const listingSchema = z.object({
   title: z.string().trim().min(3).max(120),
   description: z.string().trim().min(10).max(3000),
   category: z.string().trim().min(2).max(80),
-  imageUrl: z.union([z.string().url(), z.literal('')]).optional(),
+  imageUrl: z.union([z.string().url(), z.string().startsWith('/uploads/'), z.literal('')]).optional(),
   dealType: z.enum(dealTypes),
   price: z.number().nonnegative().max(1000000).nullable().optional(),
   condition: z.enum(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR']).default('GOOD'),
@@ -46,9 +47,14 @@ router.get('/mine', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, upload.single('image'), async (req, res, next) => {
   try {
-    const data = listingSchema.parse(req.body);
+    const body = {
+      ...req.body,
+      price: req.body.price === '' || req.body.price == null ? null : Number(req.body.price),
+      imageUrl: req.file ? /uploads/ : (req.body.imageUrl || '')
+    };
+    const data = listingSchema.parse(body);
     const listing = await prisma.listing.create({ data: { ...data, imageUrl: data.imageUrl || null, ownerId: req.user.sub }, include: listingInclude });
     res.status(201).json({ listing, message: 'Anúncio enviado para aprovação.' });
   } catch (error) { next(error); }
@@ -91,3 +97,5 @@ router.patch('/admin/:id/moderate', requireAuth, requireAdmin, async (req, res, 
 });
 
 module.exports = router;
+
+
