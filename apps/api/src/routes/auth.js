@@ -61,4 +61,26 @@ router.get('/me', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+
+router.patch('/me', requireAuth, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      name: z.string().trim().min(2).max(100),
+      institution: z.string().trim().min(2).max(150),
+      course: z.string().trim().min(2).max(120),
+      location: z.string().trim().min(2).max(120)
+    }).strict();
+
+    const data = schema.parse(req.body);
+
+    const user = await prisma.user.update({
+      where: { id: req.user.sub },
+      data
+    });
+
+    res.json({ user: publicUser(user) });
+  } catch (error) {
+    next(error);
+  }
+});
 module.exports = router;

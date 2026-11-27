@@ -516,3 +516,290 @@
   object-fit: cover;
   border-radius: 8px;
 }
+
+/* PERFIL DO ESTUDANTE */
+.profile-page {
+  min-height: calc(100vh - 82px);
+  padding: 60px 24px 80px;
+  background: #f8f6fa;
+}
+
+.profile-container {
+  width: min(100%, 720px);
+  margin: 0 auto;
+  padding: 38px;
+  background: #fff;
+  border: 1px solid #ece9f0;
+  border-radius: 14px;
+  box-shadow: 0 12px 35px #2610470a;
+}
+
+.profile-container h1 {
+  margin: 12px 0 8px;
+  color: var(--purple);
+  font: 800 32px Manrope, sans-serif;
+  letter-spacing: -1.2px;
+}
+
+.profile-description {
+  margin: 0 0 30px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.profile-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.profile-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #4f4756;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.profile-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 13px 12px;
+  border: 1px solid #e8e3eb;
+  border-radius: 7px;
+  background: #fff;
+  color: #30273a;
+  font-size: 13px;
+  outline: none;
+}
+
+.profile-form input:focus {
+  border-color: #9c80bb;
+  box-shadow: 0 0 0 3px #f3eef8;
+}
+
+.profile-form input:disabled {
+  background: #f5f3f6;
+  color: #817a86;
+  cursor: not-allowed;
+}
+
+.profile-form small {
+  color: #928a98;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.profile-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.profile-actions button:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+@media (max-width: 700px) {
+  .profile-page {
+    padding: 35px 16px 55px;
+  }
+
+  .profile-container {
+    padding: 25px 19px;
+  }
+
+  .profile-container h1 {
+    font-size: 27px;
+  }
+
+  .profile-form {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .profile-actions {
+    flex-direction: column;
+  }
+
+  .profile-actions button {
+    width: 100%;
+  }
+}
+
+/* MEUS PRODUTOS */
+.my-listings-page {
+  min-height: calc(100vh - 82px);
+  padding: 56px 24px 80px;
+  background: #f8f6fa;
+}
+
+.my-listings-container {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.my-listings-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.my-listings-heading h1 {
+  margin: 12px 0;
+  color: var(--purple);
+  font: 700 38px Manrope, sans-serif;
+  letter-spacing: -1.8px;
+}
+
+.my-listings-heading h1 em {
+  color: var(--orange);
+  font-style: normal;
+}
+
+.my-listings-heading p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.my-listings-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 25px;
+}
+
+.my-listings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.my-listing-card {
+  overflow: hidden;
+  border: 1px solid #efecf1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 5px 18px #26104708;
+}
+
+.my-listing-image {
+  height: 180px;
+  overflow: hidden;
+  background: #f1edf4;
+}
+
+.my-listing-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.my-listing-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 17px;
+}
+
+.my-listing-info h2 {
+  margin: 0;
+  color: #342543;
+  font: 700 16px/1.4 Manrope, sans-serif;
+}
+
+.my-listing-info > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.my-listing-info > strong {
+  color: var(--purple);
+  font: 800 16px Manrope, sans-serif;
+}
+
+.my-listing-date {
+  color: #96909b;
+  font-size: 10px;
+}
+
+.listing-status {
+  display: inline-flex;
+  padding: 7px 11px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.status-pending {
+  background: #fff4df;
+  color: #95651b;
+}
+
+.status-active {
+  background: #eaf4ed;
+  color: #39744c;
+}
+
+.status-rejected {
+  background: #fff0ee;
+  color: #b34b43;
+}
+
+.rejection-reason {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #f3d8d5;
+  border-radius: 8px;
+  background: #fff8f7;
+}
+
+.rejection-reason strong {
+  color: #a8443d;
+  font-size: 11px;
+}
+
+.rejection-reason p {
+  margin: 7px 0 0;
+  color: #765b58;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .my-listings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .my-listings-page {
+    padding: 35px 16px 55px;
+  }
+
+  .my-listings-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .my-listings-heading h1 {
+    font-size: 31px;
+  }
+
+  .my-listings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .my-listing-image {
+    height: 200px;
+  }
+}

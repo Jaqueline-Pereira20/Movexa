@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, Calculator, ChevronDown, Heart, Laptop, LibraryBig, Menu, Search, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '/api';
@@ -42,7 +42,19 @@ export default function App() {
   const [loadingNegotiations, setLoadingNegotiations] = useState(false);
   const [pendingListings, setPendingListings] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
+  const [myListings, setMyListings] = useState([]);
+  const [loadingMyListings, setLoadingMyListings] = useState(false);
+  const [myListingsFilter, setMyListingsFilter] = useState('ALL');
   const [moderatingListing, setModeratingListing] = useState('');
+  const [rejectionListingId, setRejectionListingId] = useState('');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [profileForm, setProfileForm] = useState({
+    name: '',
+    institution: '',
+    course: '',
+    location: ''
+  });
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const query = useMemo(() => new URLSearchParams(Object.fromEntries(Object.entries({ q: search, category, dealType }).filter(([, value]) => value))), [search, category, dealType]);
   useEffect(() => {
@@ -138,7 +150,43 @@ export default function App() {
       active = false;
     };
   }, [user, token]);
-  async function moderateListing(id, status) {
+  useEffect(() => {
+    if (!user || !token || user.role === 'ADMIN') {
+      setMyListings([]);
+      return;
+    }
+
+    let active = true;
+    setLoadingMyListings(true);
+
+    fetch(API + '/listings/mine', {
+      headers: {
+        Authorization: 'Bearer ' + token
+      }
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Não foi possível carregar seus produtos.');
+        }
+        return data;
+      })
+      .then((data) => {
+        if (active) setMyListings(data.items || []);
+      })
+      .catch((error) => {
+        if (active) setNotice(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadingMyListings(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, token]);
+
+  async function moderateListing(id, status, reason = '') {
     setModeratingListing(id);
 
     try {
@@ -148,7 +196,10 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ status })
+        body: JSON.stringify({
+          status,
+          ...(status === 'REJECTED' ? { rejectionReason: reason } : {})
+        })
       });
 
       const data = await response.json();
@@ -158,9 +209,11 @@ export default function App() {
       }
 
       setPendingListings((current) => current.filter((item) => item.id !== id));
+      setRejectionListingId('');
+      setRejectionReason('');
       setNotice(status === 'ACTIVE'
         ? 'Anúncio aprovado e publicado!'
-        : 'Anúncio rejeitado.');
+        : 'Anúncio rejeitado. O estudante poderá consultar o motivo em Meus produtos.');
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -179,6 +232,36 @@ export default function App() {
     } catch (error) { setNotice(error.message); }
   }
 
+  async function saveProfile(event) {
+    event.preventDefault();
+    setSavingProfile(true);
+
+    try {
+      const response = await fetch(`${API}/auth/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(profileForm)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível atualizar o perfil.');
+      }
+
+      localStorage.setItem('movexa-user', JSON.stringify(data.user));
+      setUser(data.user);
+      setNotice('Perfil atualizado com sucesso!');
+      setActiveView('home');
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  }
   async function createListing(event) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -292,7 +375,7 @@ export default function App() {
     <header className="topbar"><div className="nav-wrap">
       <a className="brand" href="#inicio" aria-label="Movexa início"><span className="brand-mark">m</span><span>movexa<span className="brand-dot">.</span></span></a>
       <button className="mobile-toggle" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menu">{mobileMenu ? <X /> : <Menu />}</button>
-      <nav className={mobileMenu ? 'nav-links open' : 'nav-links'}><a href="#explorar" onClick={() => setMobileMenu(false)}>Explorar</a><a href="#categorias" onClick={() => setMobileMenu(false)}>Categorias</a><a href="#como-funciona" onClick={() => { setActiveView('home'); setMobileMenu(false); }}>Como funciona</a>{user && <button className="nav-view-button" onClick={() => { setActiveView('negotiations'); setMobileMenu(false); }}>Minhas negociações</button>}{user?.role === 'ADMIN' && <button className="nav-view-button" onClick={() => { setActiveView('admin'); setMobileMenu(false); }}>Painel administrativo</button>}</nav>
+      <nav className={mobileMenu ? 'nav-links open' : 'nav-links'}><a href="#explorar" onClick={() => setMobileMenu(false)}>Explorar</a><a href="#categorias" onClick={() => setMobileMenu(false)}>Categorias</a><a href="#como-funciona" onClick={() => { setActiveView('home'); setMobileMenu(false); }}>Como funciona</a>{user && <><button className="nav-view-button" onClick={() => { setProfileForm({ name: user.name || '', institution: user.institution || '', course: user.course || '', location: user.location || '' }); setActiveView('profile'); setMobileMenu(false); }}>Meu perfil</button>{user?.role !== 'ADMIN' && <button className="nav-view-button" onClick={() => { setActiveView('my-listings'); setMobileMenu(false); }}>Meus produtos</button>}<button className="nav-view-button" onClick={() => { setActiveView('negotiations'); setMobileMenu(false); }}>Minhas negociações</button></>}{user?.role === 'ADMIN' && <button className="nav-view-button" onClick={() => { setActiveView('admin'); setMobileMenu(false); }}>Painel administrativo</button>}</nav>
       <div className="nav-actions">{user ? <><span className="welcome">Oi, {user.name.split(' ')[0]}</span><button className="btn btn-outline" onClick={logout}>Sair</button></> : <><button className="login-link" onClick={() => setModal('login')}>Entrar</button><button className="btn btn-dark" onClick={() => setModal('register')}>Criar conta <ArrowRight size={16} /></button></>}<button className="btn btn-orange nav-publish" onClick={() => user ? setModal('listing') : setModal('login')}>Anunciar grátis <span>＋</span></button></div>
     </div></header>
 
@@ -377,6 +460,170 @@ export default function App() {
       </main>
     ) : null}
 
+    {activeView === 'my-listings' && user && (
+      <main className="my-listings-page">
+        <section className="my-listings-container">
+          <div className="my-listings-heading">
+            <div>
+              <span className="eyebrow">SEUS ANÚNCIOS</span>
+              <h1>Meus <em>produtos</em></h1>
+              <p>Acompanhe a situação dos materiais que você anunciou na Movexa.</p>
+            </div>
+            <button className="btn btn-outline" onClick={() => setActiveView('home')}>
+              Voltar aos anúncios
+            </button>
+          </div>
+
+          <div className="my-listings-filters">
+            {[
+              { value: 'ALL', label: 'Todos' },
+              { value: 'PENDING', label: 'Pendentes' },
+              { value: 'ACTIVE', label: 'Aprovados' },
+              { value: 'REJECTED', label: 'Rejeitados' }
+            ].map((filter) => (
+              <button
+                key={filter.value}
+                className={myListingsFilter === filter.value ? 'category-chip selected' : 'category-chip'}
+                onClick={() => setMyListingsFilter(filter.value)}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+
+          {loadingMyListings ? (
+            <p className="status-message">Carregando seus produtos...</p>
+          ) : (
+            <div className="my-listings-grid">
+              {myListings
+                .filter((item) => myListingsFilter === 'ALL' || item.status === myListingsFilter)
+                .map((item) => (
+                  <article className="my-listing-card" key={item.id}>
+                    <div className="my-listing-image">
+                      <img
+                        src={imageSrc(item.imageUrl) || 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80'}
+                        alt={item.title}
+                      />
+                    </div>
+                    <div className="my-listing-info">
+                      <span className="product-category">{item.category}</span>
+                      <h2>{item.title}</h2>
+                      <p>{dealLabels[item.dealType] || item.dealType}</p>
+                      <strong>{money(item.price) || 'A combinar'}</strong>
+                      <span className="my-listing-date">
+                        Enviado em {item.createdAt ? new Date(item.createdAt).toLocaleDateString('pt-BR') : 'Data não disponível'}
+                      </span>
+                      <span className={`listing-status status-${String(item.status || '').toLowerCase()}`}>
+                        {item.status === 'PENDING' ? 'Pendente de aprovação' :
+                         item.status === 'ACTIVE' ? 'Aprovado e publicado' :
+                         item.status === 'REJECTED' ? 'Rejeitado' : item.status}
+                      </span>
+                      {item.status === 'REJECTED' && (
+                        <div className="rejection-reason">
+                          <strong>Motivo da rejeição</strong>
+                          <p>{item.rejectionReason || 'Nenhuma justificativa informada.'}</p>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              {!myListings.length && (
+                <div className="empty-state">
+                  <BookOpen size={32} />
+                  <h3>Você ainda não anunciou produtos</h3>
+                  <p>Seus anúncios aparecerão aqui depois que você publicar um material.</p>
+                </div>
+              )}
+              {myListings.length > 0 && !myListings.some((item) => myListingsFilter === 'ALL' || item.status === myListingsFilter) && (
+                <div className="empty-state">
+                  <BookOpen size={32} />
+                  <h3>Nenhum produto nesta categoria</h3>
+                  <p>Experimente selecionar outro filtro.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      </main>
+    )}
+
+    {activeView === 'profile' && user && (
+      <main className="profile-page">
+        <section className="profile-container">
+          <span className="eyebrow">SUA CONTA NA MOVEXA</span>
+          <h1>Meu perfil</h1>
+          <p className="profile-description">
+            Mantenha seus dados acadêmicos e pessoais atualizados.
+          </p>
+
+          <form className="profile-form" onSubmit={saveProfile}>
+            <label>
+              Nome completo
+              <input
+                type="text"
+                required
+                minLength={2}
+                maxLength={100}
+                value={profileForm.name}
+                onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })}
+              />
+            </label>
+
+            <label>
+              E-mail institucional
+              <input type="email" value={user.email || ''} readOnly disabled />
+              <small>O e-mail da conta não pode ser alterado por aqui.</small>
+            </label>
+
+            <label>
+              Instituição de ensino
+              <input
+                type="text"
+                required
+                minLength={2}
+                maxLength={150}
+                value={profileForm.institution}
+                onChange={(event) => setProfileForm({ ...profileForm, institution: event.target.value })}
+              />
+            </label>
+
+            <label>
+              Curso
+              <input
+                type="text"
+                required
+                minLength={2}
+                maxLength={120}
+                value={profileForm.course}
+                onChange={(event) => setProfileForm({ ...profileForm, course: event.target.value })}
+              />
+            </label>
+
+            <label>
+              Cidade e estado
+              <input
+                type="text"
+                required
+                minLength={2}
+                maxLength={120}
+                placeholder="Ex.: Fortaleza, CE"
+                value={profileForm.location}
+                onChange={(event) => setProfileForm({ ...profileForm, location: event.target.value })}
+              />
+            </label>
+
+            <div className="profile-actions">
+              <button className="btn btn-orange" type="submit" disabled={savingProfile}>
+                {savingProfile ? 'Salvando...' : 'Salvar alterações'}
+              </button>
+              <button className="btn btn-outline" type="button" onClick={() => setActiveView('home')}>
+                Voltar aos anúncios
+              </button>
+            </div>
+          </form>
+        </section>
+      </main>
+    )}
     {activeView === 'admin' && (
       <main className="admin-page">
         <section className="admin-container">
@@ -436,7 +683,10 @@ export default function App() {
                           <button className="btn btn-orange" disabled={moderatingListing === item.id} onClick={() => moderateListing(item.id, 'ACTIVE')}>
                             {moderatingListing === item.id ? 'Aguarde...' : 'Aprovar anúncio'}
                           </button>
-                          <button className="btn btn-outline" disabled={moderatingListing === item.id} onClick={() => moderateListing(item.id, 'REJECTED')}>Rejeitar</button>
+                          <button className="btn btn-outline" disabled={moderatingListing === item.id} onClick={() => {
+                              setRejectionListingId(item.id);
+                              setRejectionReason('');
+                            }}>Rejeitar</button>
                         </div>
                       </div>
                     </article>
@@ -447,6 +697,72 @@ export default function App() {
           )}
         </section>
       </main>
+    )}
+    {rejectionListingId && (
+      <div className="modal-backdrop" onClick={(event) => {
+        if (event.target === event.currentTarget && !moderatingListing) {
+          setRejectionListingId('');
+          setRejectionReason('');
+        }
+      }}>
+        <section className="details-modal" role="dialog" aria-modal="true" aria-labelledby="rejection-title">
+          <button
+            className="modal-close"
+            onClick={() => {
+              setRejectionListingId('');
+              setRejectionReason('');
+            }}
+            disabled={!!moderatingListing}
+            aria-label="Fechar"
+          >
+            <X />
+          </button>
+
+          <span className="eyebrow">MODERAÇÃO DE ANÚNCIO</span>
+          <h2 id="rejection-title">Motivo da rejeição</h2>
+          <p>Explique ao estudante por que o anúncio não foi aprovado.</p>
+
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            moderateListing(rejectionListingId, 'REJECTED', rejectionReason.trim());
+          }}>
+            <label>
+              Justificativa *
+              <textarea
+                value={rejectionReason}
+                onChange={(event) => setRejectionReason(event.target.value)}
+                minLength={5}
+                maxLength={500}
+                rows={5}
+                required
+                placeholder="Descreva o motivo da rejeição..."
+              />
+            </label>
+            <small>{rejectionReason.length}/500 caracteres</small>
+
+            <div className="admin-listing-actions">
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={!!moderatingListing}
+                onClick={() => {
+                  setRejectionListingId('');
+                  setRejectionReason('');
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="btn btn-orange"
+                disabled={!!moderatingListing || rejectionReason.trim().length < 5}
+              >
+                {moderatingListing ? 'Aguarde...' : 'Confirmar rejeição'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
     )}
     {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Fechar aviso"><X size={15} /></button></div>}
     {modal === 'details' && selectedListing && (

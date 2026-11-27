@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth, requireAdmin } = require('../auth');
@@ -52,7 +52,7 @@ router.post('/', requireAuth, upload.single('image'), async (req, res, next) => 
     const body = {
       ...req.body,
       price: req.body.price === '' || req.body.price == null ? null : Number(req.body.price),
-      imageUrl: req.file ? /uploads/ : (req.body.imageUrl || '')
+      imageUrl: req.file ? `/uploads/${req.file.filename}` : (req.body.imageUrl || '')
     };
     const data = listingSchema.parse(body);
     const listing = await prisma.listing.create({ data: { ...data, imageUrl: data.imageUrl || null, ownerId: req.user.sub }, include: listingInclude });
@@ -90,12 +90,27 @@ router.get('/admin/pending', requireAuth, requireAdmin, async (_req, res, next) 
 
 router.patch('/admin/:id/moderate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    const { status } = z.object({ status: z.enum(['ACTIVE', 'REJECTED']) }).parse(req.body);
-    const listing = await prisma.listing.update({ where: { id: req.params.id }, data: { status }, include: listingInclude });
+    const { status, rejectionReason } = z.object({
+      status: z.enum(['ACTIVE', 'REJECTED']),
+      rejectionReason: z.string().trim().min(5).max(500).optional()
+    }).parse(req.body);
+
+    if (status === 'REJECTED' && !rejectionReason) {
+      return res.status(400).json({ error: 'Informe o motivo da rejeição.' });
+    }
+    const listing = await prisma.listing.update({
+      where: { id: req.params.id },
+      data: {
+        status,
+        rejectionReason: status === 'REJECTED' ? rejectionReason : null
+      },
+      include: listingInclude
+    });
     res.json({ listing });
   } catch (error) { next(error); }
 });
 
 module.exports = router;
+
 
 

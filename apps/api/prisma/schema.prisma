@@ -72,6 +72,7 @@ model Listing {
   condition      Condition       @default(GOOD)
   location       String
   status         ListingStatus   @default(PENDING)
+  rejectionReason String?
   ownerId        String
   owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   favorites      Favorite[]
