@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, Calculator, ChevronDown, Heart, Laptop, LibraryBig, Menu, Search, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || '/api';
@@ -38,10 +38,18 @@ export default function App() {
   const [activeView, setActiveView] = useState('home');
     const [negotiations, setNegotiations] = useState([]);
   const [selectedNegotiation, setSelectedNegotiation] = useState(null);
+  const [activeNegotiationTab, setActiveNegotiationTab] = useState('conversation');
+  const [paymentMethod, setPaymentMethod] = useState('PIX');
   const [messageDraft, setMessageDraft] = useState('');
   const [loadingNegotiations, setLoadingNegotiations] = useState(false);
   const [pendingListings, setPendingListings] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
+  const [pendingPayments, setPendingPayments] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [reviewingPayment, setReviewingPayment] = useState('');
+  const [pendingPayouts, setPendingPayouts] = useState([]);
+  const [loadingPayouts, setLoadingPayouts] = useState(false);
+  const [authorizingPayout, setAuthorizingPayout] = useState('');
   const [myListings, setMyListings] = useState([]);
   const [loadingMyListings, setLoadingMyListings] = useState(false);
   const [myListingsFilter, setMyListingsFilter] = useState('ALL');
@@ -150,6 +158,82 @@ export default function App() {
       active = false;
     };
   }, [user, token]);
+  useEffect(() => {
+    if (!user || !token || user.role !== 'ADMIN') {
+      setPendingPayments([]);
+      setLoadingPayments(false);
+      return;
+    }
+
+    let active = true;
+    setLoadingPayments(true);
+
+    fetch(`${API}/negotiations/admin/payments`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+      .then(async (response) => {
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Não foi possível carregar os pagamentos pendentes.');
+        }
+
+        return data;
+      })
+      .then((data) => {
+        if (active) setPendingPayments(data.items || []);
+      })
+      .catch((error) => {
+        if (active) setNotice(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadingPayments(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, token]);
+  useEffect(() => {
+    if (!user || !token || user.role !== 'ADMIN') {
+      setPendingPayouts([]);
+      setLoadingPayouts(false);
+      return;
+    }
+
+    let active = true;
+    setLoadingPayouts(true);
+
+    fetch(`${API}/negotiations/admin/payouts`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Não foi possível carregar as vendas aguardando liberação.');
+        }
+        return data;
+      })
+      .then((data) => {
+        if (active) setPendingPayouts(data.items || []);
+      })
+      .catch((error) => {
+        if (active) setNotice(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadingPayouts(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, token]);
+
+
   useEffect(() => {
     if (!user || !token || user.role === 'ADMIN') {
       setMyListings([]);
@@ -368,6 +452,259 @@ export default function App() {
       setNotice(error.message);
     }
   }
+  async function acceptNegotiation() {
+    if (!selectedNegotiation) return;
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/${selectedNegotiation.id}/accept`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível aceitar a negociação.');
+      }
+
+      setNegotiations((current) =>
+        current.map((item) =>
+          item.id === data.negotiation.id ? data.negotiation : item
+        )
+      );
+
+      setSelectedNegotiation(data.negotiation);
+      setActiveNegotiationTab('payment');
+      setNotice('Negociação aceita! Já é possível realizar o pagamento.');
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+  async function reportPayment(method) {
+    if (!selectedNegotiation) return;
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/${selectedNegotiation.id}/payment/simulate`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ method })
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível informar o pagamento.');
+      }
+
+      const updatedNegotiation = {
+        ...selectedNegotiation,
+        participantPayments: [
+          ...(selectedNegotiation.participantPayments || []).filter(
+            (item) => item.payerId !== data.participantPayment.payerId
+          ),
+          data.participantPayment
+        ]
+      };
+
+      setSelectedNegotiation(updatedNegotiation);
+      setNegotiations((current) =>
+        current.map((item) =>
+          item.id === updatedNegotiation.id ? updatedNegotiation : item
+        )
+      );
+
+      setNotice(data.message || 'Pagamento informado. Aguarde a análise da administração.');
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+  async function decideParticipantPayment(paymentId, status) {
+    setReviewingPayment(paymentId);
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/admin/payments/${paymentId}/decision`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ status })
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível analisar o pagamento.');
+      }
+
+      setPendingPayments((current) =>
+        current.filter((item) => item.id !== paymentId)
+      );
+
+      setNotice(data.message);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setReviewingPayment('');
+    }
+  }
+  async function authorizePayout(negotiationId) {
+    setAuthorizingPayout(negotiationId);
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/admin/${negotiationId}/payout/authorize`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível autorizar a liberação.');
+      }
+
+      setPendingPayouts((current) =>
+        current.filter((item) => item.id !== negotiationId)
+      );
+
+      setNotice(data.message);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setAuthorizingPayout('');
+    }
+  }
+  function updateSelectedNegotiation(updatedNegotiation) {
+    setSelectedNegotiation(updatedNegotiation);
+    setNegotiations((current) =>
+      current.map((item) =>
+        item.id === updatedNegotiation.id ? updatedNegotiation : item
+      )
+    );
+  }
+
+  async function uploadDeliveryProof(deliveryId, file) {
+    if (!selectedNegotiation || !file) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const response = await fetch(
+        `${API}/negotiations/${selectedNegotiation.id}/deliveries/${deliveryId}/proof`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível enviar a comprovação.');
+      }
+
+      const updatedNegotiation = {
+        ...selectedNegotiation,
+        deliveries: (selectedNegotiation.deliveries || []).map((item) =>
+          item.id === data.delivery.id ? data.delivery : item
+        )
+      };
+
+      updateSelectedNegotiation(updatedNegotiation);
+      setNotice(data.message);
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+
+  async function uploadDeliveryReceipt(deliveryId, file) {
+    if (!selectedNegotiation || !file) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const response = await fetch(
+        `${API}/negotiations/${selectedNegotiation.id}/deliveries/${deliveryId}/receipt`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível enviar a foto do produto recebido.');
+      }
+
+      const updatedNegotiation = {
+        ...selectedNegotiation,
+        deliveries: (selectedNegotiation.deliveries || []).map((item) =>
+          item.id === data.delivery.id ? data.delivery : item
+        )
+      };
+
+      updateSelectedNegotiation(updatedNegotiation);
+      setNotice(data.message);
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
+  async function confirmDelivery(deliveryId) {
+    if (!selectedNegotiation) return;
+
+    try {
+      const response = await fetch(
+        `${API}/negotiations/${selectedNegotiation.id}/deliveries/${deliveryId}/confirm`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Não foi possível confirmar o recebimento.');
+      }
+
+      const updatedNegotiation = {
+        ...selectedNegotiation,
+        status: data.negotiationStatus,
+        deliveries: (selectedNegotiation.deliveries || []).map((item) =>
+          item.id === data.delivery.id ? data.delivery : item
+        )
+      };
+
+      updateSelectedNegotiation(updatedNegotiation);
+      setNotice(data.message);
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }
   function logout() { localStorage.removeItem('movexa-token'); localStorage.removeItem('movexa-user'); setToken(''); setUser(null); }
   const filtered = listings;
 
@@ -433,20 +770,318 @@ export default function App() {
                     </div>
                     <span>{selectedNegotiation.status || 'Em andamento'}</span>
                   </div>
+                  {selectedNegotiation.sellerId === user.id && selectedNegotiation.status === 'OPEN' && (
+                    <div className="negotiation-actions">
+                      <button className="btn btn-orange" type="button" onClick={acceptNegotiation}>
+                        Aceitar negociação
+                      </button>
+                    </div>
+                  )}
 
-                  <div className="negotiation-messages">
-                    {selectedNegotiation.messages?.length ? selectedNegotiation.messages.map((message) => (
-                      <div key={message.id} className={`negotiation-message ${message.senderId === user.id ? 'mine' : ''}`}>
-                        <p>{message.content}</p>
-                        <small>{new Date(message.createdAt).toLocaleString('pt-BR')}</small>
+                  {['ACCEPTED', 'COMPLETED'].includes(selectedNegotiation.status) && (
+                    <div className="negotiation-tabs">
+                      <button
+                        type="button"
+                        className={activeNegotiationTab === 'conversation' ? 'active' : ''}
+                        onClick={() => setActiveNegotiationTab('conversation')}
+                      >
+                        Conversa
+                      </button>
+                      <button
+                        type="button"
+                        className={activeNegotiationTab === 'payment' ? 'active' : ''}
+                        onClick={() => setActiveNegotiationTab('payment')}
+                      >
+                        Pagamento e entrega
+                      </button>
+                    </div>
+                  )}
+
+                  {activeNegotiationTab === 'conversation' && (
+                    <>
+                      <div className="negotiation-messages">
+                        {selectedNegotiation.messages?.length ? selectedNegotiation.messages.map((message) => (
+                          <div key={message.id} className={`negotiation-message ${message.senderId === user.id ? 'mine' : ''}`}>
+                            <p>{message.content}</p>
+                            <small>{new Date(message.createdAt).toLocaleString('pt-BR')}</small>
+                          </div>
+                        )) : <p className="negotiation-empty">Nenhuma mensagem ainda. Inicie a conversa!</p>}
                       </div>
-                    )) : <p className="negotiation-empty">Nenhuma mensagem ainda. Inicie a conversa!</p>}
-                  </div>
 
-                  <form className="negotiation-form" onSubmit={sendMessage}>
-                    <input value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Digite sua mensagem..." aria-label="Digite sua mensagem" />
-                    <button className="btn btn-orange" type="submit" disabled={!messageDraft.trim()}>Enviar</button>
-                  </form>
+                      {selectedNegotiation.status !== 'COMPLETED' && (
+                        <form className="negotiation-form" onSubmit={sendMessage}>
+                          <input value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} placeholder="Digite sua mensagem..." aria-label="Digite sua mensagem" />
+                          <button className="btn btn-orange" type="submit" disabled={!messageDraft.trim()}>Enviar</button>
+                        </form>
+                      )}
+                    </>
+                  )}
+
+                  {activeNegotiationTab === 'payment' && ['ACCEPTED', 'COMPLETED'].includes(selectedNegotiation.status) && (
+                    <section className="payment-summary">
+                      <h3>Resumo financeiro</h3>
+
+                      {selectedNegotiation.listing?.dealType === 'DONATION' ? (
+                        <p>Esta modalidade é gratuita. Não há cobrança de pagamento.</p>
+                      ) : selectedNegotiation.listing?.dealType === 'TRADE' ? (
+                        <>
+                          <p>Taxa por participante: <strong>{money(3.90)}</strong></p>
+                          <p>Total de taxas da troca: <strong>{money(7.80)}</strong></p>
+                        </>
+                      ) : (
+                        <>
+                          <p>
+                            {selectedNegotiation.listing?.dealType === 'RENTAL' ? 'Valor do aluguel' : 'Valor do material'}:
+                            <strong> {money(Number(selectedNegotiation.listing?.price || 0))}</strong>
+                          </p>
+                          <p>Comissão Movexa (12%): <strong>{money(Math.round(Number(selectedNegotiation.listing?.price || 0) * 100 * 0.12) / 100)}</strong></p>
+                          <p>
+                            Total do comprador:
+                            <strong> {money((Math.round(Number(selectedNegotiation.listing?.price || 0) * 100) + Math.round(Number(selectedNegotiation.listing?.price || 0) * 100 * 0.12)) / 100)}</strong>
+                          </p>
+                        </>
+                      )}
+
+                      <h3>Status dos pagamentos</h3>
+
+                      <p>
+                        Comprador: <strong>
+                          {selectedNegotiation.participantPayments?.find((item) => item.payerId === selectedNegotiation.buyerId)?.status === 'APPROVED'
+                            ? 'Pagamento aprovado'
+                            : selectedNegotiation.participantPayments?.find((item) => item.payerId === selectedNegotiation.buyerId)?.status === 'DECLINED'
+                              ? 'Pagamento recusado'
+                              : selectedNegotiation.listing?.dealType === 'DONATION' ? 'Sem cobrança' : 'Pendente'}
+                        </strong>
+                      </p>
+
+                      {selectedNegotiation.listing?.dealType === 'TRADE' && (
+                        <p>
+                          Vendedor: <strong>
+                            {selectedNegotiation.participantPayments?.find((item) => item.payerId === selectedNegotiation.sellerId)?.status === 'APPROVED'
+                              ? 'Pagamento aprovado'
+                              : selectedNegotiation.participantPayments?.find((item) => item.payerId === selectedNegotiation.sellerId)?.status === 'DECLINED'
+                                ? 'Pagamento recusado'
+                                : 'Pendente'}
+                          </strong>
+                        </p>
+                      )}
+
+                      {(selectedNegotiation.listing?.dealType === 'SALE' || selectedNegotiation.listing?.dealType === 'RENTAL') && (
+                        <p>O vendedor não precisa realizar pagamento nesta modalidade.</p>
+                      )}
+
+                      {selectedNegotiation.listing?.dealType !== 'DONATION' &&
+                        selectedNegotiation.status === 'ACCEPTED' &&
+                        (selectedNegotiation.listing?.dealType === 'TRADE' || selectedNegotiation.buyerId === user.id) &&
+                        selectedNegotiation.participantPayments?.find((item) => item.payerId === user.id)?.status === 'PENDING' && (
+                          <div className="payment-actions">
+                            <h3>Pagamento informado</h3>
+                            <p>Aguardando análise da administração.</p>
+                          </div>
+                        )}
+
+                      {selectedNegotiation.listing?.dealType !== 'DONATION' &&
+                        selectedNegotiation.status === 'ACCEPTED' &&
+                        (selectedNegotiation.listing?.dealType === 'TRADE' || selectedNegotiation.buyerId === user.id) &&
+                        !['APPROVED', 'PENDING'].includes(
+                          selectedNegotiation.participantPayments?.find((item) => item.payerId === user.id)?.status
+                        ) && (
+                          <div className="payment-actions">
+                            <h3>Informar pagamento</h3>
+                            <label htmlFor="payment-method">Forma de pagamento</label>
+                            <select
+                              id="payment-method"
+                              value={paymentMethod}
+                              onChange={(event) => setPaymentMethod(event.target.value)}
+                            >
+                              <option value="PIX">PIX</option>
+                              <option value="CARD">Cartão de crédito</option>
+                            </select>
+
+                            <div className="negotiation-actions">
+                              <button
+                                className="btn btn-orange"
+                                type="button"
+                                onClick={() => reportPayment(paymentMethod)}
+                              >
+                                Informar pagamento
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      <small></small>
+
+                    {(selectedNegotiation.listing?.dealType === 'DONATION' ||
+                      (selectedNegotiation.listing?.dealType === 'TRADE' &&
+                        [selectedNegotiation.buyerId, selectedNegotiation.sellerId].every((payerId) =>
+                          selectedNegotiation.participantPayments?.some((item) =>
+                            item.payerId === payerId && item.status === 'APPROVED'
+                          )
+                        )) ||
+                      (['SALE', 'RENTAL'].includes(selectedNegotiation.listing?.dealType) &&
+                        selectedNegotiation.participantPayments?.some((item) =>
+                          item.payerId === selectedNegotiation.buyerId && item.status === 'APPROVED'
+                        ))) && (
+                    <section className="delivery-section">
+                      <h3>Prazo e acompanhamento da entrega</h3>
+                      <p>
+                        Prazo para entrega:
+                        <strong>
+                          {' '}
+                          {selectedNegotiation.deliveryDeadline
+                            ? new Date(selectedNegotiation.deliveryDeadline).toLocaleString('pt-BR')
+                            : 'A definir'}
+                        </strong>
+                      </p>
+
+                      {selectedNegotiation.deliveries?.length ? (
+                        <div className="delivery-list">
+                          {selectedNegotiation.deliveries.map((delivery) => (
+                            <article className="delivery-card" key={delivery.id}>
+                              <h4>
+                                {delivery.sender?.name || 'Participante'} → {delivery.receiver?.name || 'Participante'}
+                              </h4>
+
+                              {selectedNegotiation.listing?.dealType === 'SALE' ? (
+                                <>
+                                  <p>
+                                    Situação: <strong>
+                                      {delivery.confirmedAt
+                                        ? 'Recebimento confirmado'
+                                        : delivery.receiptImageUrl
+                                          ? 'Aguardando confirmação'
+                                          : 'Aguardando foto do produto recebido'}
+                                    </strong>
+                                  </p>
+
+                                  {delivery.receiptSentAt && (
+                                    <p>
+                                      Foto do produto recebido enviada em: {new Date(delivery.receiptSentAt).toLocaleString('pt-BR')}
+                                    </p>
+                                  )}
+
+                                  {delivery.receiptImageUrl && (
+                                    <div className="delivery-proof">
+                                      <img
+                                        src={imageSrc(delivery.receiptImageUrl)}
+                                        alt="Foto do produto recebido pelo comprador"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {selectedNegotiation.status === 'ACCEPTED' &&
+                                    delivery.receiverId === user.id &&
+                                    !delivery.receiptImageUrl &&
+                                    !delivery.confirmedAt && (
+                                      <div className="delivery-upload">
+                                        <label htmlFor={`delivery-receipt-${delivery.id}`}>
+                                          Enviar foto do produto recebido
+                                        </label>
+                                        <input
+                                          id={`delivery-receipt-${delivery.id}`}
+                                          type="file"
+                                          accept="image/png,image/jpeg,image/webp"
+                                          onChange={(event) => {
+                                            const file = event.target.files?.[0];
+                                            if (file) uploadDeliveryReceipt(delivery.id, file);
+                                            event.target.value = '';
+                                          }}
+                                        />
+                                        <small>PNG, JPG ou WEBP. Limite de 5 MB.</small>
+                                      </div>
+                                    )}
+
+                                  {selectedNegotiation.status === 'ACCEPTED' &&
+                                    delivery.receiverId === user.id &&
+                                    delivery.receiptImageUrl &&
+                                    !delivery.confirmedAt && (
+                                      <button
+                                        type="button"
+                                        onClick={() => confirmDelivery(delivery.id)}
+                                      >
+                                        Confirmar recebimento
+                                      </button>
+                                    )}
+                                </>
+                              ) : (
+                                <>
+                                  <p>
+                                    Situação: <strong>
+                                      {delivery.confirmedAt
+                                        ? 'Recebimento confirmado'
+                                        : delivery.proofImageUrl
+                                          ? 'Aguardando confirmação'
+                                          : 'Aguardando comprovante'}
+                                    </strong>
+                                  </p>
+
+                                  {delivery.sentAt && (
+                                    <p>Comprovante enviado em: {new Date(delivery.sentAt).toLocaleString('pt-BR')}</p>
+                                  )}
+
+                                  {delivery.proofImageUrl && (
+                                    <div className="delivery-proof">
+                                      <img
+                                        src={imageSrc(delivery.proofImageUrl)}
+                                        alt="Foto de comprovação da entrega"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {selectedNegotiation.status === 'ACCEPTED' &&
+                                    delivery.senderId === user.id &&
+                                    !delivery.proofImageUrl && (
+                                      <div className="delivery-upload">
+                                        <label htmlFor={`delivery-proof-${delivery.id}`}>
+                                          Enviar foto de comprovação
+                                        </label>
+                                        <input
+                                          id={`delivery-proof-${delivery.id}`}
+                                          type="file"
+                                          accept="image/png,image/jpeg,image/webp"
+                                          onChange={(event) => {
+                                            const file = event.target.files?.[0];
+                                            if (file) uploadDeliveryProof(delivery.id, file);
+                                            event.target.value = '';
+                                          }}
+                                        />
+                                        <small>PNG, JPG ou WEBP. Limite de 5 MB.</small>
+                                      </div>
+                                    )}
+
+                                  {selectedNegotiation.status === 'ACCEPTED' &&
+                                    delivery.receiverId === user.id &&
+                                    delivery.proofImageUrl &&
+                                    !delivery.confirmedAt && (
+                                      <button
+                                        type="button"
+                                        onClick={() => confirmDelivery(delivery.id)}
+                                      >
+                                        Confirmar recebimento
+                                      </button>
+                                    )}
+                                </>
+                              )}
+
+                              {delivery.confirmedAt && (
+                                <p className="delivery-confirmed">
+                                  Confirmado em {new Date(delivery.confirmedAt).toLocaleString('pt-BR')}
+                                </p>
+                              )}
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p>As etapas de entrega ainda não foram registradas.</p>
+                      )}
+
+                      <small>
+                        A negociação só será concluída quando todas as entregas e confirmações obrigatórias forem realizadas.
+                      </small>
+                    </section>
+                    )}
+                    </section>
+                  )}
                 </>
               ) : (
                 <div className="negotiation-empty">
@@ -693,6 +1328,140 @@ export default function App() {
                   ))}
                 </div>
               )}
+            <div className="admin-section-heading" style={{ marginTop: '48px' }}>
+              <div>
+                <h2>Pagamentos aguardando análise</h2>
+                <p>{pendingPayments.length} pagamento(s) pendente(s)</p>
+              </div>
+            </div>
+
+            {loadingPayments ? (
+              <div className="empty-state">
+                <p>Carregando pagamentos pendentes...</p>
+              </div>
+            ) : pendingPayments.length === 0 ? (
+              <div className="empty-state">
+                <ShieldCheck size={32} />
+                <h3>Nenhum pagamento aguardando análise</h3>
+                <p>Quando um estudante informar um pagamento, ele aparecerá aqui.</p>
+              </div>
+            ) : (
+              <div className="admin-listings">
+                {pendingPayments.map((item) => {
+                  const negotiation = item.negotiation;
+                  const listing = negotiation?.listing;
+
+                  return (
+                    <article className="admin-payment-card" key={item.id}>
+                      <div className="admin-listing-info">
+                        <span className="product-category">
+                          {dealLabels[listing?.dealType] || listing?.dealType || 'Negociação'}
+                        </span>
+                        <h3>{listing?.title || 'Produto não informado'}</h3>
+
+                        <div className="admin-listing-details">
+                          <span><strong>Participante:</strong> {item.payer?.name || 'Não informado'}</span>
+                          <span><strong>E-mail:</strong> {item.payer?.email || 'Não informado'}</span>
+                          <span><strong>Comprador:</strong> {negotiation?.buyer?.name || 'Não informado'}</span>
+                          <span><strong>Vendedor:</strong> {negotiation?.seller?.name || 'Não informado'}</span>
+                          <span><strong>Valor informado:</strong> {money(item.amount)}</span>
+                          <span><strong>Forma de pagamento:</strong> {item.method === 'PIX' ? 'PIX' : 'Cartão'}</span>
+                          <span><strong>Data do registro:</strong> {item.reportedAt ? new Date(item.reportedAt).toLocaleString('pt-BR') : 'Não informada'}</span>
+                        </div>
+
+                        <div className="admin-listing-actions">
+                          <button
+                            className="btn btn-orange"
+                            disabled={reviewingPayment === item.id}
+                            onClick={() => decideParticipantPayment(item.id, 'APPROVED')}
+                          >
+                            {reviewingPayment === item.id ? 'Aguarde...' : 'Aprovar pagamento'}
+                          </button>
+                          <button
+                            className="btn btn-outline"
+                            disabled={reviewingPayment === item.id}
+                            onClick={() => decideParticipantPayment(item.id, 'DECLINED')}
+                          >
+                            Recusar pagamento
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+              <div className="admin-section-heading" style={{ marginTop: '48px' }}>
+                <div>
+                  <h2>Vendas aguardando liberação</h2>
+                  <p>{pendingPayouts.length} venda(s) aguardando liberação</p>
+                </div>
+              </div>
+
+              {loadingPayouts ? (
+                <div className="empty-state">
+                  <p>Carregando vendas aguardando liberação...</p>
+                </div>
+              ) : pendingPayouts.length === 0 ? (
+                <div className="empty-state">
+                  <ShieldCheck size={32} />
+                  <h3>Nenhuma venda aguardando liberação</h3>
+                  <p>As vendas com recebimento confirmado pelo comprador aparecerão aqui.</p>
+                </div>
+              ) : (
+                <div className="admin-listings">
+                  {pendingPayouts.map((item) => {
+                    const receiptDelivery = item.deliveries?.find(
+                      (delivery) => delivery.receiptImageUrl && delivery.confirmedAt
+                    );
+
+                    return (
+                      <article className="admin-payment-card" key={item.id}>
+                        <div className="admin-listing-info">
+                          <span className="product-category">Venda · Recebimento confirmado</span>
+                          <h3>{item.listing?.title || 'Produto não informado'}</h3>
+
+                          <div className="admin-listing-details">
+                            <span><strong>Comprador:</strong> {item.buyer?.name || 'Não informado'}</span>
+                            <span><strong>Vendedor:</strong> {item.seller?.name || 'Não informado'}</span>
+                            <span><strong>Total pago:</strong> {money(item.payment?.totalAmount)}</span>
+                            <span><strong>Valor destinado ao vendedor:</strong> {money(item.payment?.sellerAmount)}</span>
+                            <span>
+                              <strong>Recebimento confirmado em:</strong>{' '}
+                              {receiptDelivery?.confirmedAt
+                                ? new Date(receiptDelivery.confirmedAt).toLocaleString('pt-BR')
+                                : 'Não informado'}
+                            </span>
+                          </div>
+
+                          {receiptDelivery?.receiptImageUrl ? (
+                            <div style={{ marginTop: '16px' }}>
+                              <p><strong>Foto do produto recebido:</strong></p>
+                              <img
+                                src={imageSrc(receiptDelivery.receiptImageUrl)}
+                                alt="Foto do produto recebido pelo comprador"
+                                style={{ maxWidth: '220px', maxHeight: '180px', objectFit: 'cover', borderRadius: '12px' }}
+                              />
+                            </div>
+                          ) : (
+                            <p>Foto de recebimento não disponível.</p>
+                          )}
+
+                          <div className="admin-listing-actions">
+                            <button
+                              className="btn btn-orange"
+                              disabled={authorizingPayout === item.id}
+                              onClick={() => authorizePayout(item.id)}
+                            >
+                              {authorizingPayout === item.id ? 'Aguarde...' : 'Autorizar liberação'}
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
             </>
           )}
         </section>
@@ -832,6 +1601,11 @@ export default function App() {
       <p className="privacy-note">Ao continuar, você concorda com nossos termos de uso e política de privacidade.</p></section></div>}
   </>;
 }
+
+
+
+
+
 
 
 

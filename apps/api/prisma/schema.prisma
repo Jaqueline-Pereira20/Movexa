@@ -41,6 +41,16 @@ enum NegotiationStatus {
   CANCELLED
 }
 
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+enum PaymentMethod {
+  PIX
+  CARD
+}
+
 model User {
   id           String         @id @default(cuid())
   name         String
@@ -59,6 +69,11 @@ model User {
   sentMessages Message[]
   buyerDeals   Negotiation[]  @relation("BuyerDeals")
   sellerDeals  Negotiation[]  @relation("SellerDeals")
+  participantPayments ParticipantPayment[] @relation("ParticipantPayments")
+  reviewedParticipantPayments ParticipantPayment[] @relation("PaymentReviewers")
+  authorizedPayouts Payment[] @relation("PayoutAuthorizers")
+  sentDeliveries Delivery[] @relation("SentDeliveries")
+  receivedDeliveries Delivery[] @relation("ReceivedDeliveries")
 }
 
 model Listing {
@@ -104,6 +119,10 @@ model Negotiation {
   buyer     User              @relation("BuyerDeals", fields: [buyerId], references: [id], onDelete: Cascade)
   seller    User              @relation("SellerDeals", fields: [sellerId], references: [id], onDelete: Cascade)
   messages  Message[]
+  payment   Payment?
+  participantPayments ParticipantPayment[]
+  deliveries Delivery[]
+  deliveryDeadline DateTime?
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
 }
@@ -118,4 +137,66 @@ model Message {
   createdAt      DateTime    @default(now())
 
   @@index([negotiationId, createdAt])
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  negotiationId   String        @unique
+  negotiation     Negotiation   @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  dealType        DealType
+  baseAmount      Decimal       @db.Decimal(10, 2)
+  commissionRate  Decimal       @db.Decimal(5, 2)
+  platformFee     Decimal       @db.Decimal(10, 2)
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  sellerAmount    Decimal       @db.Decimal(10, 2)
+  status          PaymentStatus @default(PENDING)
+  simulated       Boolean       @default(true)
+  paidAt          DateTime?
+  payoutAuthorizedAt DateTime?
+  payoutAuthorizedById String?
+  payoutAuthorizedBy User? @relation("PayoutAuthorizers", fields: [payoutAuthorizedById], references: [id], onDelete: SetNull)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model ParticipantPayment {
+  id             String        @id @default(cuid())
+  negotiationId  String
+  payerId        String
+  negotiation    Negotiation   @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  payer          User          @relation("ParticipantPayments", fields: [payerId], references: [id], onDelete: Cascade)
+  amount         Decimal       @db.Decimal(10, 2)
+  method         PaymentMethod
+  status         PaymentStatus @default(PENDING)
+  simulated      Boolean       @default(true)
+  paidAt         DateTime?
+  reportedAt     DateTime?
+  reviewedAt     DateTime?
+  reviewedById   String?
+  reviewedBy     User? @relation("PaymentReviewers", fields: [reviewedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([negotiationId, payerId])
+  @@index([payerId, status])
+}
+
+model Delivery {
+  id             String      @id @default(cuid())
+  negotiationId  String
+  senderId       String
+  receiverId     String
+  negotiation    Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  sender         User        @relation("SentDeliveries", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver       User        @relation("ReceivedDeliveries", fields: [receiverId], references: [id], onDelete: Cascade)
+  proofImageUrl  String?
+  receiptImageUrl String?
+  receiptSentAt DateTime?
+  sentAt         DateTime?
+  confirmedAt    DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([negotiationId, senderId])
+  @@index([receiverId, confirmedAt])
 }

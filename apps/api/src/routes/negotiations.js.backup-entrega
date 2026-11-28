@@ -1,0 +1,184 @@
+const express = require('express');
+const { z } = require('zod');
+const prisma = require('../db');
+const { requireAuth } = require('../auth');
+
+const router = express.Router();
+router.post('/', requireAuth, async (req, res, next) => {
+  try {
+    const { listingId, content } = z.object({ listingId: z.string(), content: z.string().trim().min(1).max(2000) }).parse(req.body);
+    const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+    if (!listing || listing.status !== 'ACTIVE') return res.status(404).json({ error: 'Anúncio não encontrado.' });
+    if (listing.ownerId === req.user.sub) return res.status(400).json({ error: 'Você não pode iniciar uma negociação no próprio anúncio.' });
+    const negotiation = await prisma.negotiation.create({
+      data: { listingId, buyerId: req.user.sub, sellerId: listing.ownerId, messages: { create: { content, senderId: req.user.sub } } },
+      include: { messages: true, listing: { select: { id: true, title: true, dealType: true } } }
+    });
+    res.status(201).json({ negotiation });
+  } catch (error) { next(error); }
+});
+
+router.get('/mine', requireAuth, async (req, res, next) => {
+  try {
+    const items = await prisma.negotiation.findMany({
+      where: { OR: [{ buyerId: req.user.sub }, { sellerId: req.user.sub }] },
+      include: { listing: { select: { id: true, title: true, imageUrl: true, dealType: true, price: true } }, buyer: { select: { id: true, name: true } }, seller: { select: { id: true, name: true } }, messages: { orderBy: { createdAt: 'asc' } }, payment: true },
+      orderBy: { updatedAt: 'desc' }
+    });
+    res.json({ items });
+  } catch (error) { next(error); }
+});
+
+router.patch('/:id/accept', requireAuth, async (req, res, next) => {
+  try {
+    const deal = await prisma.negotiation.findUnique({
+      where: { id: req.params.id },
+      include: { listing: true }
+    });
+
+    if (!deal) return res.status(404).json({ error: 'Negociação não encontrada.' });
+    if (deal.sellerId !== req.user.sub) return res.status(403).json({ error: 'Somente o vendedor pode aceitar esta negociação.' });
+    if (deal.status !== 'OPEN') return res.status(400).json({ error: 'Esta negociação não está mais aberta.' });
+    if (deal.listing.status !== 'ACTIVE') return res.status(400).json({ error: 'Este anúncio não está mais disponível.' });
+
+    const result = await prisma.negotiation.updateMany({
+      where: { id: deal.id, sellerId: req.user.sub, status: 'OPEN' },
+      data: { status: 'ACCEPTED' }
+    });
+
+    if (result.count === 0) return res.status(409).json({ error: 'A negociação já foi alterada. Atualize a página.' });
+
+    const negotiation = await prisma.negotiation.findUnique({
+      where: { id: deal.id },
+      include: {
+        listing: { select: { id: true, title: true, dealType: true, price: true } },
+        buyer: { select: { id: true, name: true } },
+        seller: { select: { id: true, name: true } },
+        messages: { orderBy: { createdAt: 'asc' } }
+      }
+    });
+
+    res.json({ negotiation, message: 'Negociação aceita com sucesso.' });
+  } catch (error) { next(error); }
+});
+router.post('/:id/payment/simulate', requireAuth, async (req, res, next) => {
+  try {
+    const { status } = z.object({
+      status: z.enum(['APPROVED', 'DECLINED'])
+    }).parse(req.body);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const deal = await tx.negotiation.findUnique({
+        where: { id: req.params.id },
+        include: { listing: true, payment: true }
+      });
+
+      if (!deal) {
+        return { error: 'Negociação não encontrada.', code: 404 };
+      }
+
+      if (deal.buyerId !== req.user.sub) {
+        return { error: 'Somente o comprador pode simular este pagamento.', code: 403 };
+      }
+
+      if (deal.status !== 'ACCEPTED') {
+        return { error: 'A negociação precisa estar aceita para realizar o pagamento.', code: 400 };
+      }
+
+      if (!['SALE', 'RENTAL'].includes(deal.listing.dealType)) {
+        return { error: 'O pagamento simulado com comissão está disponível apenas para vendas e aluguéis.', code: 400 };
+      }
+
+      if (deal.listing.price === null || Number(deal.listing.price) <= 0) {
+        return { error: 'O anúncio não possui um preço válido para pagamento.', code: 400 };
+      }
+
+      if (deal.payment?.status === 'APPROVED') {
+        return { error: 'Esta negociação já possui um pagamento aprovado.', code: 409 };
+      }
+
+      if (deal.listing.dealType === 'SALE' && deal.listing.status !== 'ACTIVE') {
+        return { error: 'Este anúncio não está mais disponível para venda.', code: 409 };
+      }
+
+      const baseCents = Math.round(Number(deal.listing.price) * 100);
+      const feeCents = Math.round(baseCents * 0.12);
+      const totalCents = baseCents + feeCents;
+
+      const money = (cents) => (cents / 100).toFixed(2);
+
+      const payment = await tx.payment.upsert({
+        where: { negotiationId: deal.id },
+        create: {
+          negotiationId: deal.id,
+          dealType: deal.listing.dealType,
+          baseAmount: money(baseCents),
+          commissionRate: '12.00',
+          platformFee: money(feeCents),
+          totalAmount: money(totalCents),
+          sellerAmount: money(baseCents),
+          status,
+          simulated: true,
+          paidAt: status === 'APPROVED' ? new Date() : null
+        },
+        update: {
+          dealType: deal.listing.dealType,
+          baseAmount: money(baseCents),
+          commissionRate: '12.00',
+          platformFee: money(feeCents),
+          totalAmount: money(totalCents),
+          sellerAmount: money(baseCents),
+          status,
+          simulated: true,
+          paidAt: status === 'APPROVED' ? new Date() : null
+        }
+      });
+
+      if (status === 'APPROVED') {
+        if (deal.listing.dealType === 'SALE') {
+          const listingUpdate = await tx.listing.updateMany({
+            where: { id: deal.listingId, status: 'ACTIVE' },
+            data: { status: 'SOLD' }
+          });
+
+          if (listingUpdate.count !== 1) {
+            throw new Error('O anúncio não está mais disponível para venda.');
+          }
+        }
+
+        await tx.negotiation.update({
+          where: { id: deal.id },
+          data: { status: 'COMPLETED' }
+        });
+      }
+
+      return { payment, negotiationStatus: status === 'APPROVED' ? 'COMPLETED' : 'ACCEPTED' };
+    });
+
+    if (result.error) {
+      return res.status(result.code).json({ error: result.error });
+    }
+
+    res.json({
+      payment: result.payment,
+      negotiationStatus: result.negotiationStatus,
+      message: status === 'APPROVED'
+        ? 'Pagamento simulado aprovado. Nenhum dinheiro real foi movimentado.'
+        : 'Pagamento simulado recusado. Nenhum dinheiro real foi movimentado.'
+    });
+  } catch (error) { next(error); }
+});
+router.post('/:id/messages', requireAuth, async (req, res, next) => {
+  try {
+    const { content } = z.object({ content: z.string().trim().min(1).max(2000) }).parse(req.body);
+    const deal = await prisma.negotiation.findUnique({ where: { id: req.params.id } });
+    if (!deal) return res.status(404).json({ error: 'Negociação não encontrada.' });
+    if (![deal.buyerId, deal.sellerId].includes(req.user.sub)) return res.status(403).json({ error: 'Esta conversa não pertence à sua conta.' });
+    if (deal.status === 'CANCELLED' || deal.status === 'COMPLETED') return res.status(400).json({ error: 'Esta negociação foi encerrada.' });
+    const message = await prisma.message.create({ data: { content, negotiationId: deal.id, senderId: req.user.sub } });
+    await prisma.negotiation.update({ where: { id: deal.id }, data: { updatedAt: new Date() } });
+    res.status(201).json({ message });
+  } catch (error) { next(error); }
+});
+
+module.exports = router;
